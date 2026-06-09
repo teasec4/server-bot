@@ -1,0 +1,24 @@
+{
+  "listen": ":8080",
+  "targets": [
+    {
+      "id": "self_health",
+      "name": "Local server-bot health",
+      "type": "http",
+      "url": "http://127.0.0.1:8080/health",
+      "method": "GET",
+      "interval": "5s",
+      "timeout": "2s",
+      "expected_status": 200,
+      "consecutive_failures": 2
+    }
+  ],
+  "renewals": [
+    {
+      "id": "vps_payment",
+      "name": "VPS payment",
+      "due_date": "2026-07-01",
+      "warn_days": [14, 7, 3, 1]
+    }
+  ]
+}
