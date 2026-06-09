@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -12,9 +13,32 @@ import (
 type Monitor struct {
 	cfg *config.Config
 
+	notifier Notifier
+
 	// mu защищает targets: проверки идут в goroutine, а /status может читать их параллельно.
 	mu      sync.RWMutex
 	targets map[string]TargetState
+}
+
+type Option func(*Monitor)
+
+// Notifier - внешний канал уведомлений.
+// Monitor сообщает ему только важные события, но не знает, Telegram это, email или что-то еще.
+type Notifier interface {
+	NotifyTargetEvent(ctx context.Context, event TargetEvent) error
+}
+
+// TargetEvent описывает переход цели из одного состояния в другое.
+type TargetEvent struct {
+	PreviousState string      `json:"previous_state"`
+	CurrentState  string      `json:"current_state"`
+	Target        TargetState `json:"target"`
+}
+
+func WithNotifier(notifier Notifier) Option {
+	return func(m *Monitor) {
+		m.notifier = notifier
+	}
 }
 
 // TargetState - последнее известное состояние одной цели.
@@ -52,7 +76,7 @@ type Snapshot struct {
 	Renewals    []RenewalState `json:"renewals"`
 }
 
-func New(cfg *config.Config) *Monitor {
+func New(cfg *config.Config, options ...Option) *Monitor {
 	targets := make(map[string]TargetState, len(cfg.Targets))
 	for _, target := range cfg.Targets {
 		targets[target.ID] = TargetState{
@@ -65,10 +89,15 @@ func New(cfg *config.Config) *Monitor {
 		}
 	}
 
-	return &Monitor{
+	monitor := &Monitor{
 		cfg:     cfg,
 		targets: targets,
 	}
+	for _, option := range options {
+		option(monitor)
+	}
+
+	return monitor
 }
 
 // Start запускает бесконечные циклы проверок.
@@ -146,9 +175,8 @@ func (m *Monitor) checkTarget(ctx context.Context, target config.TargetConfig) {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	state := m.targets[target.ID]
+	previousState := state.State
 	state.LastResult = &result
 	state.NextCheckAt = time.Now().Add(target.Interval.Duration)
 	if result.OK {
@@ -164,6 +192,29 @@ func (m *Monitor) checkTarget(ctx context.Context, target config.TargetConfig) {
 		}
 	}
 	m.targets[target.ID] = state
+	event := TargetEvent{
+		PreviousState: previousState,
+		CurrentState:  state.State,
+		Target:        state,
+	}
+	notifier := m.notifier
+	m.mu.Unlock()
+
+	if notifier != nil && shouldNotifyTargetEvent(event) {
+		if err := notifier.NotifyTargetEvent(ctx, event); err != nil {
+			slog.Warn("failed to send target notification", "target", target.ID, "error", err)
+		}
+	}
+}
+
+func shouldNotifyTargetEvent(event TargetEvent) bool {
+	if event.CurrentState == "down" && event.PreviousState != "down" {
+		return true
+	}
+	if event.CurrentState == "up" && event.PreviousState == "down" {
+		return true
+	}
+	return false
 }
 
 // renewalStates переводит due_date из конфига в удобный статус для человека.

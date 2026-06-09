@@ -15,6 +15,7 @@ import (
 	"server-bot/internal/config"
 	"server-bot/internal/handler"
 	"server-bot/internal/monitor"
+	"server-bot/internal/telegram"
 )
 
 func main() {
@@ -38,7 +39,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	mon := monitor.New(cfg)
+	var monitorOptions []monitor.Option
+	if !*once {
+		// Telegram - только канал уведомлений. Если переменные окружения не заданы,
+		// мониторинг продолжит работать локально через /status без отправки сообщений.
+		telegramClient, enabled, err := telegram.NewFromEnv()
+		if err != nil {
+			slog.Error("failed to configure telegram", "error", err)
+			os.Exit(1)
+		}
+		if enabled {
+			slog.Info("telegram notifications enabled")
+			monitorOptions = append(monitorOptions, monitor.WithNotifier(telegramClient))
+		}
+	}
+
+	mon := monitor.New(cfg, monitorOptions...)
 	if *once {
 		mon.CheckAll(ctx)
 		if err := json.NewEncoder(os.Stdout).Encode(mon.Snapshot(time.Now())); err != nil {
