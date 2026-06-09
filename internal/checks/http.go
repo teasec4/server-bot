@@ -22,6 +22,8 @@ type Result struct {
 	Description string    `json:"description"`
 }
 
+// RunHTTP выполняет одну HTTP-проверку и возвращает самодостаточный результат.
+// Функция ничего не знает про Telegram, расписание и историю - только один запрос.
 func RunHTTP(ctx context.Context, target config.TargetConfig) Result {
 	startedAt := time.Now()
 	result := Result{
@@ -31,6 +33,7 @@ func RunHTTP(ctx context.Context, target config.TargetConfig) Result {
 		CheckedAt: startedAt,
 	}
 
+	// У каждой цели свой timeout, чтобы зависший сайт не блокировал весь мониторинг.
 	requestCtx, cancel := context.WithTimeout(ctx, target.Timeout.Duration)
 	defer cancel()
 
@@ -46,6 +49,8 @@ func RunHTTP(ctx context.Context, target config.TargetConfig) Result {
 	}
 	defer response.Body.Close()
 
+	// Читаем маленький кусок тела, чтобы HTTP-клиент мог корректно переиспользовать соединение.
+	// Сам контент страницы нам пока не важен: проверяем доступность и статус-код.
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
 	result.HTTPStatus = response.StatusCode
 	if response.StatusCode != target.ExpectedStatus {
@@ -55,6 +60,7 @@ func RunHTTP(ctx context.Context, target config.TargetConfig) Result {
 	return finish(result, startedAt, nil, "ok")
 }
 
+// finish заполняет общие поля результата: длительность, ok/error и короткое описание.
 func finish(result Result, startedAt time.Time, err error, description string) Result {
 	result.DurationMS = time.Since(startedAt).Milliseconds()
 	if err != nil {

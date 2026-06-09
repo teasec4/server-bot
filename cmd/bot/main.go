@@ -18,7 +18,12 @@ import (
 )
 
 func main() {
+	// configPath - единственный источник правды для проверок:
+	// какие URL проверять, как часто, с каким таймаутом и какие даты оплаты помнить.
 	configPath := flag.String("config", "config.json", "path to JSON config")
+
+	// once нужен для ручной проверки и будущих cron/systemd timer-сценариев:
+	// приложение выполняет все проверки один раз, печатает JSON-статус и завершается.
 	once := flag.Bool("once", false, "run all checks once, print status, and exit")
 	flag.Parse()
 
@@ -28,6 +33,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Этот context закрывается при Ctrl+C или SIGTERM от Docker/systemd.
+	// Через него останавливаются циклы проверок и HTTP-сервер.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -41,8 +48,12 @@ func main() {
 		return
 	}
 
+	// В обычном режиме монитор сам запускает отдельный цикл проверок для каждой цели.
 	mon.Start(ctx)
 
+	// HTTP API пока локальное и простое:
+	// /health показывает, что сам бот жив,
+	// /status отдает последний известный статус всех проверок.
 	server := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           handler.New(mon),
@@ -59,6 +70,7 @@ func main() {
 
 	<-ctx.Done()
 
+	// Даем серверу до 10 секунд на аккуратное завершение активных запросов.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {

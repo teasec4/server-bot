@@ -8,6 +8,8 @@ import (
 	"server-bot/internal/monitor"
 )
 
+// New собирает HTTP API вокруг monitor.
+// Это не публичная панель управления, а простой локальный интерфейс для проверки и Docker healthcheck.
 func New(monitor *monitor.Monitor) http.Handler {
 	mux := http.NewServeMux()
 

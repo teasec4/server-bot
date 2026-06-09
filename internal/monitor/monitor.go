@@ -12,10 +12,17 @@ import (
 type Monitor struct {
 	cfg *config.Config
 
+	// mu защищает targets: проверки идут в goroutine, а /status может читать их параллельно.
 	mu      sync.RWMutex
 	targets map[string]TargetState
 }
 
+// TargetState - последнее известное состояние одной цели.
+// Возможные state:
+// pending - проверка еще не успела выполниться;
+// up - последняя проверка успешна;
+// suspect - есть ошибка, но порог consecutive_failures еще не достигнут;
+// down - ошибок подряд достаточно, чтобы считать цель недоступной.
 type TargetState struct {
 	ID                  string         `json:"id"`
 	Name                string         `json:"name"`
@@ -28,6 +35,8 @@ type TargetState struct {
 	NextCheckAt         time.Time      `json:"next_check_at,omitempty"`
 }
 
+// RenewalState - вычисленное состояние оплаты на текущую дату.
+// Конфиг хранит due_date, а days_left/state считаются на лету.
 type RenewalState struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -36,6 +45,7 @@ type RenewalState struct {
 	State    string `json:"state"`
 }
 
+// Snapshot - полный срез состояния, который отдает /status и будет использовать Telegram.
 type Snapshot struct {
 	GeneratedAt time.Time      `json:"generated_at"`
 	Targets     []TargetState  `json:"targets"`
@@ -61,6 +71,8 @@ func New(cfg *config.Config) *Monitor {
 	}
 }
 
+// Start запускает бесконечные циклы проверок.
+// На каждую цель создается отдельная goroutine, поэтому медленная цель не тормозит остальные.
 func (m *Monitor) Start(ctx context.Context) {
 	for _, target := range m.cfg.Targets {
 		target := target
@@ -68,6 +80,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	}
 }
 
+// CheckAll нужен для режима -once: выполнить все проверки прямо сейчас и вернуть управление.
 func (m *Monitor) CheckAll(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(len(m.cfg.Targets))
@@ -81,6 +94,7 @@ func (m *Monitor) CheckAll(ctx context.Context) {
 	wg.Wait()
 }
 
+// Snapshot копирует состояние под read-lock, чтобы HTTP handler не видел полузаписанные данные.
 func (m *Monitor) Snapshot(now time.Time) Snapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -97,6 +111,7 @@ func (m *Monitor) Snapshot(now time.Time) Snapshot {
 	}
 }
 
+// runTargetLoop сразу выполняет первую проверку, затем повторяет ее по interval из конфига.
 func (m *Monitor) runTargetLoop(ctx context.Context, target config.TargetConfig) {
 	m.checkTarget(ctx, target)
 
@@ -113,6 +128,7 @@ func (m *Monitor) runTargetLoop(ctx context.Context, target config.TargetConfig)
 	}
 }
 
+// checkTarget запускает конкретный checker и обновляет state machine для цели.
 func (m *Monitor) checkTarget(ctx context.Context, target config.TargetConfig) {
 	var result checks.Result
 	switch target.Type {
@@ -136,6 +152,7 @@ func (m *Monitor) checkTarget(ctx context.Context, target config.TargetConfig) {
 	state.LastResult = &result
 	state.NextCheckAt = time.Now().Add(target.Interval.Duration)
 	if result.OK {
+		// Любая успешная проверка полностью сбрасывает счетчик ошибок.
 		state.State = "up"
 		state.ConsecutiveFailures = 0
 	} else {
@@ -149,6 +166,7 @@ func (m *Monitor) checkTarget(ctx context.Context, target config.TargetConfig) {
 	m.targets[target.ID] = state
 }
 
+// renewalStates переводит due_date из конфига в удобный статус для человека.
 func renewalStates(renewals []config.RenewalConfig, now time.Time) []RenewalState {
 	states := make([]RenewalState, 0, len(renewals))
 	location := now.Location()

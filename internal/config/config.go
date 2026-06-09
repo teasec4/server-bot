@@ -14,6 +14,8 @@ type Duration struct {
 	time.Duration
 }
 
+// UnmarshalJSON позволяет писать интервалы в конфиге по-человечески:
+// "5s", "1m", "2h", а не число наносекунд.
 func (d *Duration) UnmarshalJSON(data []byte) error {
 	var value string
 	if err := json.Unmarshal(data, &value); err != nil {
@@ -42,6 +44,8 @@ type Config struct {
 	Renewals []RenewalConfig `json:"renewals"`
 }
 
+// TargetConfig описывает одну техническую проверку.
+// Сейчас поддержан только type=http; TCP, ping и TLS expiry добавим отдельными шагами.
 type TargetConfig struct {
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`
@@ -54,6 +58,8 @@ type TargetConfig struct {
 	ConsecutiveFailures int      `json:"consecutive_failures"`
 }
 
+// RenewalConfig описывает ручную дату продления: оплату VPS, домена, подписки.
+// Бот не проверяет оплату у провайдера сам, он напоминает по due_date.
 type RenewalConfig struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -61,6 +67,8 @@ type RenewalConfig struct {
 	WarnDays []int  `json:"warn_days"`
 }
 
+// Load читает конфиг с диска, запрещает неизвестные поля и сразу валидирует данные.
+// Если в конфиге опечатка в имени поля, приложение упадет при старте, а не промолчит.
 func Load(path string) (*Config, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -81,11 +89,14 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// ApplyDefaultsAndValidate приводит конфиг к рабочему виду:
+// заполняет безопасные значения по умолчанию и ловит ошибки до запуска мониторинга.
 func (cfg *Config) ApplyDefaultsAndValidate() error {
 	if strings.TrimSpace(cfg.Listen) == "" {
 		cfg.Listen = ":8080"
 	}
 
+	// IDs должны быть уникальными: по ним храним состояние и потом будем слать алерты.
 	seenTargets := make(map[string]struct{}, len(cfg.Targets))
 	for i := range cfg.Targets {
 		target := &cfg.Targets[i]
@@ -137,11 +148,14 @@ func (cfg *Config) ApplyDefaultsAndValidate() error {
 		if target.ConsecutiveFailures == 0 {
 			target.ConsecutiveFailures = 2
 		}
+		// consecutive_failures защищает от случайных сетевых морганий:
+		// одна ошибка делает цель suspect, несколько подряд переводят ее в down.
 		if target.ConsecutiveFailures < 1 {
 			return fmt.Errorf("target %q consecutive_failures must be at least 1", target.ID)
 		}
 	}
 
+	// Renewal IDs тоже уникальны, чтобы потом можно было подтверждать/обновлять их командами.
 	seenRenewals := make(map[string]struct{}, len(cfg.Renewals))
 	for i := range cfg.Renewals {
 		renewal := &cfg.Renewals[i]
@@ -164,6 +178,7 @@ func (cfg *Config) ApplyDefaultsAndValidate() error {
 		if len(renewal.WarnDays) == 0 {
 			renewal.WarnDays = []int{14, 7, 3, 1}
 		}
+		// warn_days - это пороги напоминаний: за 14, 7, 3 и 1 день до оплаты.
 		for _, day := range renewal.WarnDays {
 			if day < 0 {
 				return fmt.Errorf("renewal %q warn_days cannot contain negative values", renewal.ID)
