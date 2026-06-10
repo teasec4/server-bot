@@ -105,6 +105,31 @@ func helpMessage() string {
 		"/status или кнопка Отчет - показать последний статус",
 		"/check или кнопка Проверить сейчас - запустить проверки вручную",
 		"/ping или кнопка Проверить соединение - проверить связь с ботом",
+		"/whoami - показать chat_id/user_id",
+	}, "\n")
+}
+
+func unpairedHelpMessage() string {
+	return strings.Join([]string{
+		"Бот еще не привязан к admin chat.",
+		"1. Открой server logs.",
+		"2. Найди telegram pairing code.",
+		"3. Отправь сюда: /pair CODE",
+		"",
+		"Для отладки можно отправить /whoami.",
+	}, "\n")
+}
+
+func whoamiMessage(chatID, userID, username string, paired bool) string {
+	if username == "" {
+		username = "-"
+	}
+	return strings.Join([]string{
+		"Telegram identity:",
+		"chat_id: " + chatID,
+		"user_id: " + userID,
+		"username: " + username,
+		fmt.Sprintf("paired: %t", paired),
 	}, "\n")
 }
 

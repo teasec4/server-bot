@@ -32,10 +32,19 @@ type update struct {
 type message struct {
 	Text string `json:"text"`
 	Chat chat   `json:"chat"`
+	From *user  `json:"from,omitempty"`
 }
 
 type chat struct {
-	ID int64 `json:"id"`
+	ID   int64  `json:"id"`
+	Type string `json:"type,omitempty"`
+}
+
+type user struct {
+	ID        int64  `json:"id"`
+	Username  string `json:"username,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
 }
 
 type replyKeyboardMarkup struct {

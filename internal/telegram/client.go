@@ -25,28 +25,32 @@ const (
 )
 
 type Client struct {
-	token      string
-	chatID     string
-	baseURL    string
-	httpClient *http.Client
+	token               string
+	chatID              string
+	adminUserID         string
+	statePath           string
+	pairingCode         string
+	pairingExpiresAt    time.Time
+	failedPairAttempts  int
+	pairingBlockedUntil time.Time
+	baseURL             string
+	httpClient          *http.Client
 }
 
 // New создает клиента Telegram Bot API.
-// В обычном запуске token/chatID приходят из env, а не из config.json.
+// chatID может быть пустым: тогда admin будет привязан через /pair CODE.
 func New(token, chatID string) (*Client, error) {
 	token = strings.TrimSpace(token)
 	chatID = strings.TrimSpace(chatID)
 	if token == "" {
 		return nil, errors.New("telegram bot token is required")
 	}
-	if chatID == "" {
-		return nil, errors.New("telegram chat id is required")
-	}
 
 	return &Client{
-		token:   token,
-		chatID:  chatID,
-		baseURL: telegramAPIURL,
+		token:     token,
+		chatID:    chatID,
+		statePath: statePathFromEnv(),
+		baseURL:   telegramAPIURL,
 		httpClient: &http.Client{
 			Timeout: telegramHTTPTimeout,
 		},
@@ -59,22 +63,38 @@ func NewFromEnv() (*Client, bool, error) {
 	if token == "" && chatID == "" {
 		return nil, false, nil
 	}
-	if token == "" || chatID == "" {
-		return nil, false, errors.New("set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+	if token == "" {
+		return nil, false, errors.New("TELEGRAM_BOT_TOKEN is required when Telegram is enabled")
 	}
 
 	client, err := New(token, chatID)
 	if err != nil {
 		return nil, false, err
 	}
+	if client.chatID == "" {
+		if err := client.loadState(); err != nil {
+			return nil, false, err
+		}
+	}
+	if client.chatID == "" {
+		if err := client.ensurePairingCode(); err != nil {
+			return nil, false, err
+		}
+	}
 	return client, true, nil
 }
 
 func (c *Client) NotifyTargetEvent(ctx context.Context, event monitor.TargetEvent) error {
+	if c.chatID == "" {
+		return nil
+	}
 	return c.SendMessage(ctx, FormatTargetEvent(event))
 }
 
 func (c *Client) SendMessage(ctx context.Context, text string) error {
+	if c.chatID == "" {
+		return nil
+	}
 	return c.sendMessage(ctx, c.chatID, text, false)
 }
 

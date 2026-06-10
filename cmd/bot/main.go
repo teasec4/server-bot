@@ -51,6 +51,9 @@ func main() {
 		if enabled {
 			slog.Info("telegram notifications enabled")
 			telegramClient = client
+			if code, expiresAt, ok := telegramClient.PairingCode(); ok {
+				slog.Info("telegram pairing required", "code", code, "expires_at", expiresAt.Format(time.RFC3339), "state_path", telegramClient.StatePath())
+			}
 		}
 	}
 
