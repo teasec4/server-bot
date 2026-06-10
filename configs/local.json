@@ -2,6 +2,17 @@
   "listen": ":8080",
   "targets": [
     {
+      "id": "translatechinese_site",
+      "name": "Translate Chinese website",
+      "type": "http",
+      "url": "https://translatechinese.online/",
+      "method": "GET",
+      "interval": "1m",
+      "timeout": "5s",
+      "expected_status": 200,
+      "consecutive_failures": 2
+    },
+    {
       "id": "self_health",
       "name": "Local server-bot health",
       "type": "http",
