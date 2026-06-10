@@ -26,9 +26,9 @@ curl -sS http://127.0.0.1:8080/status
 
 Telegram включается, если задан `TELEGRAM_BOT_TOKEN`.
 `TELEGRAM_CHAT_ID` можно не задавать: тогда бот привяжет admin chat через `/pair CODE`.
+При локальном запуске файл `.env` читается автоматически.
 
 ```bash
-export TELEGRAM_BOT_TOKEN="123456789:replace-me"
 go run ./cmd/bot
 ```
 
