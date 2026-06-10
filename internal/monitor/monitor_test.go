@@ -53,7 +53,8 @@ func TestMonitorNotifiesOnDownAndRecovery(t *testing.T) {
 				ConsecutiveFailures: 1,
 			},
 		},
-	}, WithNotifier(notifier))
+	})
+	monitor.SetNotifier(notifier)
 
 	monitor.CheckAll(context.Background())
 	status = http.StatusOK

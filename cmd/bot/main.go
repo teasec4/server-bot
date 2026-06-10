@@ -39,22 +39,25 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	var monitorOptions []monitor.Option
+	var telegramClient *telegram.Client
 	if !*once {
-		// Telegram - только канал уведомлений. Если переменные окружения не заданы,
-		// мониторинг продолжит работать локально через /status без отправки сообщений.
-		telegramClient, enabled, err := telegram.NewFromEnv()
+		// Telegram включается только переменными окружения.
+		// Без них мониторинг продолжит работать локально через /status.
+		client, enabled, err := telegram.NewFromEnv()
 		if err != nil {
 			slog.Error("failed to configure telegram", "error", err)
 			os.Exit(1)
 		}
 		if enabled {
 			slog.Info("telegram notifications enabled")
-			monitorOptions = append(monitorOptions, monitor.WithNotifier(telegramClient))
+			telegramClient = client
 		}
 	}
 
-	mon := monitor.New(cfg, monitorOptions...)
+	mon := monitor.New(cfg)
+	if telegramClient != nil {
+		mon.SetNotifier(telegramClient)
+	}
 	if *once {
 		mon.CheckAll(ctx)
 		if err := json.NewEncoder(os.Stdout).Encode(mon.Snapshot(time.Now())); err != nil {
@@ -66,6 +69,15 @@ func main() {
 
 	// В обычном режиме монитор сам запускает отдельный цикл проверок для каждой цели.
 	mon.Start(ctx)
+	if telegramClient != nil {
+		go func() {
+			slog.Info("telegram polling started")
+			if err := telegramClient.Run(ctx, mon); err != nil {
+				slog.Error("telegram polling stopped", "error", err)
+				stop()
+			}
+		}()
+	}
 
 	// HTTP API пока локальное и простое:
 	// /health показывает, что сам бот жив,

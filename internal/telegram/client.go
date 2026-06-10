@@ -15,8 +15,13 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.telegram.org"
-	defaultTimeout = 10 * time.Second
+	telegramAPIURL      = "https://api.telegram.org"
+	telegramHTTPTimeout = 35 * time.Second
+	pollTimeoutSeconds  = 25
+
+	buttonReport   = "Отчет"
+	buttonCheckNow = "Проверить сейчас"
+	buttonPing     = "Проверить соединение"
 )
 
 type Client struct {
@@ -26,23 +31,9 @@ type Client struct {
 	httpClient *http.Client
 }
 
-type Option func(*Client)
-
-func WithBaseURL(baseURL string) Option {
-	return func(client *Client) {
-		client.baseURL = strings.TrimRight(baseURL, "/")
-	}
-}
-
-func WithHTTPClient(httpClient *http.Client) Option {
-	return func(client *Client) {
-		client.httpClient = httpClient
-	}
-}
-
-// New создает Telegram-клиент поверх обычного Bot API.
-// token и chatID приходят из переменных окружения, а не из config.json, чтобы не хранить секреты в git.
-func New(token, chatID string, options ...Option) (*Client, error) {
+// New создает клиента Telegram Bot API.
+// В обычном запуске token/chatID приходят из env, а не из config.json.
+func New(token, chatID string) (*Client, error) {
 	token = strings.TrimSpace(token)
 	chatID = strings.TrimSpace(chatID)
 	if token == "" {
@@ -52,29 +43,16 @@ func New(token, chatID string, options ...Option) (*Client, error) {
 		return nil, errors.New("telegram chat id is required")
 	}
 
-	client := &Client{
+	return &Client{
 		token:   token,
 		chatID:  chatID,
-		baseURL: defaultBaseURL,
+		baseURL: telegramAPIURL,
 		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+			Timeout: telegramHTTPTimeout,
 		},
-	}
-	for _, option := range options {
-		option(client)
-	}
-	if client.baseURL == "" {
-		return nil, errors.New("telegram base url is required")
-	}
-	if client.httpClient == nil {
-		client.httpClient = &http.Client{Timeout: defaultTimeout}
-	}
-
-	return client, nil
+	}, nil
 }
 
-// NewFromEnv включает Telegram только если заданы обе переменные.
-// Если переменные отсутствуют, enabled=false и приложение продолжает работать без уведомлений.
 func NewFromEnv() (*Client, bool, error) {
 	token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	chatID := strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID"))
@@ -92,17 +70,28 @@ func NewFromEnv() (*Client, bool, error) {
 	return client, true, nil
 }
 
-// NotifyTargetEvent превращает событие monitor в обычный текст и отправляет его в Telegram.
 func (c *Client) NotifyTargetEvent(ctx context.Context, event monitor.TargetEvent) error {
 	return c.SendMessage(ctx, FormatTargetEvent(event))
 }
 
 func (c *Client) SendMessage(ctx context.Context, text string) error {
+	return c.sendMessage(ctx, c.chatID, text, false)
+}
+
+func (c *Client) sendMessage(ctx context.Context, chatID, text string, withKeyboard bool) error {
+	if chatID == "" {
+		chatID = c.chatID
+	}
+
 	payload := sendMessageRequest{
-		ChatID:                c.chatID,
+		ChatID:                chatID,
 		Text:                  text,
 		DisableWebPagePreview: true,
 	}
+	if withKeyboard {
+		payload.ReplyMarkup = defaultKeyboard()
+	}
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode telegram message: %w", err)
@@ -132,66 +121,4 @@ func (c *Client) SendMessage(ctx context.Context, text string) error {
 		return fmt.Errorf("telegram api rejected message: %s", result.Description)
 	}
 	return nil
-}
-
-// FormatTargetEvent держит формат сообщений в одном месте, чтобы алерты были предсказуемыми.
-func FormatTargetEvent(event monitor.TargetEvent) string {
-	target := event.Target
-	result := target.LastResult
-
-	var builder strings.Builder
-	if event.CurrentState == "down" {
-		builder.WriteString("ALERT: цель недоступна\n")
-	} else {
-		builder.WriteString("RECOVERY: цель восстановилась\n")
-	}
-
-	builder.WriteString("name: ")
-	builder.WriteString(target.Name)
-	builder.WriteString("\n")
-	builder.WriteString("id: ")
-	builder.WriteString(target.ID)
-	builder.WriteString("\n")
-	builder.WriteString("state: ")
-	builder.WriteString(event.PreviousState)
-	builder.WriteString(" -> ")
-	builder.WriteString(event.CurrentState)
-	builder.WriteString("\n")
-	builder.WriteString("url: ")
-	builder.WriteString(target.URL)
-	builder.WriteString("\n")
-	builder.WriteString(fmt.Sprintf("failures: %d/%d\n", target.ConsecutiveFailures, target.FailureThreshold))
-
-	if result == nil {
-		return strings.TrimSpace(builder.String())
-	}
-
-	builder.WriteString(fmt.Sprintf("duration: %dms\n", result.DurationMS))
-	if result.HTTPStatus != 0 {
-		builder.WriteString(fmt.Sprintf("http_status: %d\n", result.HTTPStatus))
-	}
-	if result.Error != "" {
-		builder.WriteString("error: ")
-		builder.WriteString(result.Error)
-		builder.WriteString("\n")
-	} else if result.Description != "" {
-		builder.WriteString("description: ")
-		builder.WriteString(result.Description)
-		builder.WriteString("\n")
-	}
-	builder.WriteString("checked_at: ")
-	builder.WriteString(result.CheckedAt.Format(time.RFC3339))
-
-	return strings.TrimSpace(builder.String())
-}
-
-type sendMessageRequest struct {
-	ChatID                string `json:"chat_id"`
-	Text                  string `json:"text"`
-	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
-}
-
-type sendMessageResponse struct {
-	OK          bool   `json:"ok"`
-	Description string `json:"description"`
 }

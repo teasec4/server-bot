@@ -20,8 +20,6 @@ type Monitor struct {
 	targets map[string]TargetState
 }
 
-type Option func(*Monitor)
-
 // Notifier - внешний канал уведомлений.
 // Monitor сообщает ему только важные события, но не знает, Telegram это, email или что-то еще.
 type Notifier interface {
@@ -33,12 +31,6 @@ type TargetEvent struct {
 	PreviousState string      `json:"previous_state"`
 	CurrentState  string      `json:"current_state"`
 	Target        TargetState `json:"target"`
-}
-
-func WithNotifier(notifier Notifier) Option {
-	return func(m *Monitor) {
-		m.notifier = notifier
-	}
 }
 
 // TargetState - последнее известное состояние одной цели.
@@ -76,7 +68,7 @@ type Snapshot struct {
 	Renewals    []RenewalState `json:"renewals"`
 }
 
-func New(cfg *config.Config, options ...Option) *Monitor {
+func New(cfg *config.Config) *Monitor {
 	targets := make(map[string]TargetState, len(cfg.Targets))
 	for _, target := range cfg.Targets {
 		targets[target.ID] = TargetState{
@@ -89,15 +81,14 @@ func New(cfg *config.Config, options ...Option) *Monitor {
 		}
 	}
 
-	monitor := &Monitor{
+	return &Monitor{
 		cfg:     cfg,
 		targets: targets,
 	}
-	for _, option := range options {
-		option(monitor)
-	}
+}
 
-	return monitor
+func (m *Monitor) SetNotifier(notifier Notifier) {
+	m.notifier = notifier
 }
 
 // Start запускает бесконечные циклы проверок.
