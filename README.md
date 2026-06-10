@@ -12,7 +12,7 @@
 ## Локальный запуск
 
 ```bash
-go run ./cmd/bot -config configs/local.json
+go run ./cmd/bot
 ```
 
 В другом терминале:
@@ -29,7 +29,7 @@ Telegram включается, если задан `TELEGRAM_BOT_TOKEN`.
 
 ```bash
 export TELEGRAM_BOT_TOKEN="123456789:replace-me"
-go run ./cmd/bot -config configs/local.json
+go run ./cmd/bot
 ```
 
 При первом запуске без `TELEGRAM_CHAT_ID` бот напишет pairing code в server logs:

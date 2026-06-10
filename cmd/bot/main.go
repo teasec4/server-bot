@@ -21,7 +21,7 @@ import (
 func main() {
 	// configPath - единственный источник правды для проверок:
 	// какие URL проверять, как часто, с каким таймаутом и какие даты оплаты помнить.
-	configPath := flag.String("config", "config.json", "path to JSON config")
+	configPath := flag.String("config", defaultConfigPath(), "path to JSON config")
 
 	// once нужен для ручной проверки и будущих cron/systemd timer-сценариев:
 	// приложение выполняет все проверки один раз, печатает JSON-статус и завершается.
@@ -108,4 +108,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "shutdown failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func defaultConfigPath() string {
+	if _, err := os.Stat("config.json"); err == nil {
+		return "config.json"
+	}
+	if _, err := os.Stat("configs/local.json"); err == nil {
+		return "configs/local.json"
+	}
+	return "config.json"
 }
