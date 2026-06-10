@@ -76,10 +76,19 @@ Telegram умеет отправлять алерты:
 ## Docker
 
 ```bash
-docker build -t server-bot:local .
-docker run --rm -p 8080:8080 \
-  --env-file .env \
-  -v "$PWD/configs/local.json:/app/config.json:ro" \
-  -v "$PWD/data:/app/data" \
-  server-bot:local
+docker compose up -d --build
+docker compose logs -f server-bot
+```
+
+`compose.yaml`:
+
+- читает `.env`;
+- монтирует `configs/local.json` как `/app/config.json`;
+- хранит pairing-state в Docker volume `server-bot-data`;
+- открывает `/health` и `/status` на `127.0.0.1:8080`.
+
+Если нужно сбросить pairing на тестовом окружении:
+
+```bash
+docker compose down -v
 ```

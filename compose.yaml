@@ -1,0 +1,23 @@
+services:
+  server-bot:
+    build:
+      context: .
+    image: server-bot:local
+    container_name: server-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./configs/local.json:/app/config.json:ro
+      - server-bot-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  server-bot-data:
