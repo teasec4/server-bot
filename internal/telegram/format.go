@@ -3,7 +3,6 @@ package telegram
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"server-bot/internal/monitor"
 )
@@ -12,91 +11,138 @@ func FormatTargetEvent(event monitor.TargetEvent) string {
 	target := event.Target
 	result := target.LastResult
 
-	var builder strings.Builder
+	var b strings.Builder
 	if event.CurrentState == "down" {
-		builder.WriteString("ALERT: цель недоступна\n")
+		b.WriteString("🚨 Цель недоступна\n")
 	} else {
-		builder.WriteString("RECOVERY: цель восстановилась\n")
+		b.WriteString("✅ Цель восстановилась\n")
 	}
 
-	builder.WriteString("name: ")
-	builder.WriteString(target.Name)
-	builder.WriteString("\n")
-	builder.WriteString("id: ")
-	builder.WriteString(target.ID)
-	builder.WriteString("\n")
-	builder.WriteString("state: ")
-	builder.WriteString(event.PreviousState)
-	builder.WriteString(" -> ")
-	builder.WriteString(event.CurrentState)
-	builder.WriteString("\n")
-	builder.WriteString("url: ")
-	builder.WriteString(target.URL)
-	builder.WriteString("\n")
-	builder.WriteString(fmt.Sprintf("failures: %d/%d\n", target.ConsecutiveFailures, target.FailureThreshold))
+	b.WriteString(target.Name)
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("%s → %s", stateLabel(event.PreviousState), stateLabel(event.CurrentState)))
+	b.WriteString("\n")
+	b.WriteString(target.URL)
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("Ошибок подряд: %d/%d", target.ConsecutiveFailures, target.FailureThreshold))
 
-	if result == nil {
-		return strings.TrimSpace(builder.String())
+	if result != nil {
+		b.WriteString(fmt.Sprintf("  |  %dms", result.DurationMS))
+		if result.HTTPStatus != 0 {
+			b.WriteString(fmt.Sprintf("  |  HTTP %d", result.HTTPStatus))
+		}
+		if result.Error != "" {
+			b.WriteString(fmt.Sprintf("\n%s", result.Error))
+		} else if result.Description != "" {
+			b.WriteString(fmt.Sprintf("  |  %s", result.Description))
+		}
 	}
 
-	builder.WriteString(fmt.Sprintf("duration: %dms\n", result.DurationMS))
-	if result.HTTPStatus != 0 {
-		builder.WriteString(fmt.Sprintf("http_status: %d\n", result.HTTPStatus))
-	}
-	if result.Error != "" {
-		builder.WriteString("error: ")
-		builder.WriteString(result.Error)
-		builder.WriteString("\n")
-	} else if result.Description != "" {
-		builder.WriteString("description: ")
-		builder.WriteString(result.Description)
-		builder.WriteString("\n")
-	}
-	builder.WriteString("checked_at: ")
-	builder.WriteString(result.CheckedAt.Format(time.RFC3339))
-
-	return strings.TrimSpace(builder.String())
+	return strings.TrimSpace(b.String())
 }
 
 func FormatSnapshot(snapshot monitor.Snapshot) string {
-	var builder strings.Builder
-	builder.WriteString("Отчет server-bot\n")
-	builder.WriteString("generated_at: ")
-	builder.WriteString(snapshot.GeneratedAt.Format(time.RFC3339))
-	builder.WriteString("\n\n")
+	var b strings.Builder
 
-	if len(snapshot.Targets) == 0 {
-		builder.WriteString("targets: нет настроенных проверок\n")
-	} else {
-		builder.WriteString("targets:\n")
-		for _, target := range snapshot.Targets {
-			builder.WriteString("- ")
-			builder.WriteString(target.Name)
-			builder.WriteString(" [")
-			builder.WriteString(target.State)
-			builder.WriteString("]")
-			if target.LastResult != nil {
-				if target.LastResult.HTTPStatus != 0 {
-					builder.WriteString(fmt.Sprintf(" http=%d", target.LastResult.HTTPStatus))
-				}
-				builder.WriteString(fmt.Sprintf(" %dms", target.LastResult.DurationMS))
-				if target.LastResult.Error != "" {
-					builder.WriteString(" error=")
-					builder.WriteString(target.LastResult.Error)
-				}
+	// Заголовок с датой в читаемом формате
+	b.WriteString("📊 Отчёт server-bot\n")
+	b.WriteString(snapshot.GeneratedAt.Format("2 Jan 2006 15:04:05"))
+	b.WriteString("\n")
+
+	// Сводка по целям: ✅ 2/2
+	if len(snapshot.Targets) > 0 {
+		up := 0
+		for _, t := range snapshot.Targets {
+			if t.State == "up" {
+				up++
 			}
-			builder.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("━━ %d/%d доступно\n", up, len(snapshot.Targets)))
+	}
+
+	// Таблица целей
+	if len(snapshot.Targets) == 0 {
+		b.WriteString("\nНет настроенных проверок\n")
+	} else {
+		b.WriteString("\n")
+		for _, t := range snapshot.Targets {
+			b.WriteString(stateIcon(t.State))
+			b.WriteString(" ")
+			b.WriteString(t.Name)
+			b.WriteByte('\n')
+			if t.LastResult != nil {
+				b.WriteString("   ")
+				b.WriteString(fmt.Sprintf("%dms", t.LastResult.DurationMS))
+				if t.LastResult.HTTPStatus != 0 {
+					b.WriteString(fmt.Sprintf("  HTTP %d", t.LastResult.HTTPStatus))
+				}
+				if t.LastResult.Error != "" {
+					b.WriteString(fmt.Sprintf("  ⚡%s", t.LastResult.Error))
+				}
+				b.WriteByte('\n')
+			}
 		}
 	}
 
+	// Даты оплат
 	if len(snapshot.Renewals) > 0 {
-		builder.WriteString("\nrenewals:\n")
-		for _, renewal := range snapshot.Renewals {
-			builder.WriteString(fmt.Sprintf("- %s [%s] %s, days_left=%d\n", renewal.Name, renewal.State, renewal.DueDate, renewal.DaysLeft))
+		b.WriteString("\n📅 Оплаты\n")
+		for _, r := range snapshot.Renewals {
+			b.WriteString(renewalIcon(r.State))
+			b.WriteString(" ")
+			b.WriteString(r.Name)
+			b.WriteString(" — ")
+			b.WriteString(r.DueDate)
+			switch r.State {
+			case "expired":
+				b.WriteString(fmt.Sprintf(" (просрочено на %d дн.)", -r.DaysLeft))
+			case "warning":
+				b.WriteString(fmt.Sprintf(" (через %d дн.)", r.DaysLeft))
+			default:
+				b.WriteString(fmt.Sprintf(" (ещё %d дн.)", r.DaysLeft))
+			}
+			b.WriteByte('\n')
 		}
 	}
 
-	return strings.TrimSpace(builder.String())
+	return strings.TrimSpace(b.String())
+}
+
+func stateIcon(state string) string {
+	switch state {
+	case "up":
+		return "🟢"
+	case "down":
+		return "🔴"
+	case "suspect":
+		return "🟡"
+	default:
+		return "⚪"
+	}
+}
+
+func stateLabel(state string) string {
+	switch state {
+	case "up":
+		return "🟢 доступна"
+	case "down":
+		return "🔴 недоступна"
+	case "suspect":
+		return "🟡 подозрение"
+	default:
+		return "⚪ ожидание"
+	}
+}
+
+func renewalIcon(state string) string {
+	switch state {
+	case "expired":
+		return "🔴"
+	case "warning":
+		return "🟡"
+	default:
+		return "🟢"
+	}
 }
 
 func helpMessage() string {

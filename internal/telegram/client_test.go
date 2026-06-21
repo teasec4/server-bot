@@ -116,7 +116,7 @@ func TestHandleUpdateSendsReportWithKeyboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(received.Text, "Отчет server-bot") {
+	if !strings.Contains(received.Text, "server-bot") {
 		t.Fatalf("expected report text, got %q", received.Text)
 	}
 	if received.ReplyMarkup == nil {
